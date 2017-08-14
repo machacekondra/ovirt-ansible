@@ -1,0 +1,27 @@
+---
+- name: VDSM configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    # Contains encrypted `engine_password` varibale using ansible-vault
+    - passwords.yml
+
+  vars:
+    engine_url: https://ondra.local:8443/ovirt-engine/api
+    engine_user: admin@internal
+
+    host_names:
+      - host1
+    vdsm_file_path: /etc/vdsm/logger.conf
+    vdsm_configuration:
+      - section: logger_root
+        option: level
+        value: DEBUG
+      - section: logger_vds
+        option: level
+        value: DEBUG
+
+  roles:
+    - vdsm-conf

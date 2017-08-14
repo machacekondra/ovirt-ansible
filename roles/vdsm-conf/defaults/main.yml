@@ -1,0 +1,6 @@
+---
+configuration_backup: no
+wait_for_host_up_state: yes
+vdsm_file_path: /etc/vdsm/vdsm.conf
+host_statuses:
+  - UP

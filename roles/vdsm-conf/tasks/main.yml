@@ -1,0 +1,48 @@
+---
+- name: Fail if user didn't specify proper input parameters
+  fail:
+    msg: "Please specify either cluster_name or host_names parameter"
+  when:
+    - "host_names is not defined or host_names | length == 0"
+    - "cluster_name is not defined"
+
+- block:
+  - name: Login to oVirt
+    ovirt_auth:
+      url: "{{ engine_url }}"
+      username: "{{ engine_user }}"
+      password: "{{ engine_password }}"
+      ca_file: "{{ engine_cafile | default(omit) }}"
+      insecure: "{{ engine_insecure | default(true) }}"
+    when: ovirt_auth is undefined
+    register: loggedin
+
+  - block:
+    - name: Fetch hosts in cluster
+      ovirt_hosts_facts:
+        auth: "{{ ovirt_auth }}"
+        pattern: "cluster={{ cluster_name }}"
+  
+    - name: Print info about host which will be modified
+      debug:
+        msg: "Following hosts will be modified: {{ ovirt_hosts | map(attribute='name') | list }}"
+  
+    - name: Run the modification of the VDSM for the host
+      include: modify_vdsm.yml
+      with_items:
+        - "{{ ovirt_hosts | map(attribute='name') | list }}"
+    when: "cluster_name is defined"
+  
+  - block:
+    - name: Run the modification of the VDSM for the host
+      include: modify_vdsm.yml
+      with_items:
+        - "{{ host_names }}"
+    when: "host_names | length > 0"
+
+  always:
+    - name: Logout from oVirt
+      ovirt_auth:
+        state: absent
+        ovirt_auth: "{{ ovirt_auth }}"
+      when: not loggedin.skipped | default(false)

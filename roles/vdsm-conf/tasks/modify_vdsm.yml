@@ -1,0 +1,93 @@
+---
+####################################################
+# Flow:
+# 1) Disable fencing from the host
+# 2) Stop VDSM
+# 3) Perform the change
+# 4) Start VDSM
+# 5) Verify the host is up in Engine
+# 6) Restore fencing
+####################################################
+#
+- name: Fetch power management settings
+  ovirt_hosts_facts:
+    auth: "{{ ovirt_auth }}"
+    pattern: "name={{ item }} and {{ host_statuses | map('regex_replace', '(.*)', 'status=\\1') | list | join(' or ') }}"
+
+- name: Fail if host wasn't found
+  fail:
+    msg: "Host with name wasn't found, skipping."
+  when: ovirt_hosts | length == 0
+
+- name: Check if only one host for the name was found
+  fail:
+    msg: "More hosts with name {{ item }} was found. Please don't use regular expressions."
+  when: ovirt_hosts | length > 1
+
+- name: Remember power management settings
+  set_fact:
+    power_management_enabled: "{{ ovirt_hosts[0].power_management.enabled }}"
+
+- name: Check if VDSM configuration change is indeed needed with dry mode
+  ini_file:
+    path: "{{ vdsm_file_path }}"
+    section: "{{ vdsm_var.section | default('vars') }}"
+    option: "{{ vdsm_var.option | mandatory }}"
+    value: "{{ vdsm_var.value | mandatory }}"
+    backup: "{{ configuration_backup }}"
+  delegate_to: "{{ ovirt_hosts[0].address }}"
+  with_items:
+    - "{{ vdsm_configuration | mandatory }}"
+  loop_control:
+    loop_var: vdsm_var
+  check_mode: yes
+  register: need_change
+
+- block:
+  - name: Disable power management
+    ovirt_hosts:
+      auth: "{{ ovirt_auth }}"
+      name: "{{ item }}"
+      power_management_enabled: no
+
+  - name: Stop VDSM
+    service:
+      name: "vdsmd"
+      state: stopped
+    delegate_to: "{{ ovirt_hosts[0].address }}"
+
+  - name: Change the VDSM configraution
+    ini_file:
+      path: "{{ vdsm_file_path }}"
+      section: "{{ vdsm_var.section | default('vars') }}"
+      option: "{{ vdsm_var.option | mandatory }}"
+      value: "{{ vdsm_var.value | mandatory }}"
+      backup: "{{ configuration_backup }}"
+    delegate_to: "{{ ovirt_hosts[0].address }}"
+    with_items:
+      - "{{ vdsm_configuration | mandatory }}"
+    loop_control:
+      loop_var: vdsm_var
+
+  - name: Start VDSM
+    service:
+      name: "vdsmd"
+      state: started
+    delegate_to: "{{ ovirt_hosts[0].address }}"
+
+  - name: Wait till the host is UP in engine
+    ovirt_hosts_facts:
+      auth: "{{ ovirt_auth }}"
+      pattern: "name={{ item }} and status=UP"
+    when: wait_for_host_up_state
+    until: ovirt_hosts | length > 0
+    retries: 6
+    delay: 10
+
+  when: "True in need_change.results | map(attribute='changed') | list"
+  always:
+    - name: Restore power management settings
+      ovirt_hosts:
+        auth: "{{ ovirt_auth }}"
+        name: "{{ item }}"
+        power_management_enabled: "{{ power_management_enabled }}"
