@@ -18,4 +18,5 @@ galaxy_info:
   galaxy_tags: [ovirt, rhv, rhev, virtualization]
 
 dependencies:
+  - ovirt-host-deploy-facts
   - ovirt-host-deploy-firewalld
