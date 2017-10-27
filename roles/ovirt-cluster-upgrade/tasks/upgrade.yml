@@ -1,5 +1,35 @@
 ---
 - block:
+  - name: Get list of VMs running on host {{ item.name }} in cluster {{ cluster_name }}
+    ovirt_vms_facts:
+      auth: "{{ ovirt_auth }}"
+      pattern: "cluster={{ cluster_name }} and host={{ item.name }}"
+    check_mode: no
+
+  - name: Check if any VM is non migratable running on current host
+    set_fact:
+      pinned_vms_to_shutdown: "{{ ovirt_vms | selectattr('placement_policy.affinity', 'equalto', 'pinned') | map(attribute='name') | list }}"
+
+  - name: Shutdown non-migratable VMs
+    ovirt_vms:
+      auth: "{{ ovirt_auth }}"
+      state: stopped
+      force: true
+      name: "{{ vm_name }}"
+    when: stop_non_migratable_vms
+    with_items: "{{ pinned_vms_to_shutdown }}"
+    loop_control:
+      loop_var: vm_name
+
+  - name: Fail if pinned VM to host and stop_non_migratable_vms is false
+    fail:
+      msg: "There are running pinned VMs on host {{ item.name }}, update host manully or check stop_non_migratable_vms variable."
+    when: not stop_non_migratable_vms and pinned_vms_to_shutdown | length > 0
+
+  - name: Append to VM list of VMs to be started
+    set_fact:
+      pinned_vms_down: "{{ pinned_vms_down }} + {{ pinned_vms_to_shutdown }}"
+    when: stop_non_migratable_vms
 
   - name: Upgrade host
     ovirt_hosts:

@@ -34,6 +34,7 @@
       set_fact:
         failed_host_names: []
         succeed_host_names: []
+        pinned_vms_down: []
 
     - name: Get cluster facts
       ovirt_clusters_facts:
@@ -50,12 +51,6 @@
     - name: Remember the cluster scheduling policy
       set_fact:
         cluster_scheduling_policy: "{{ ovirt_scheduling_policies[0].name }}"
-  
-    - name: Get list of VMs in cluster
-      ovirt_vms_facts:
-        auth: "{{ ovirt_auth }}"
-        pattern: "cluster={{ cluster_name }}"
-      check_mode: no
   
     - name: Get API facts
       # TODO: Change when Ansible 2.5 is released:
@@ -83,14 +78,11 @@
       with_items:
         - "{{ stopped_vms | default([]) }}"
   
-    - include: pinned_vms.yml
-  
     # Update only those hosts that aren't in list of hosts were VMs are pinned
     # or if stop_non_migratable_vms is enabled, which means we stop pinned VMs
     - include: upgrade.yml
       with_items:
         - "{{ ovirt_hosts }}"
-      when: "item.id not in host_ids or stop_non_migratable_vms"
 
     when: ovirt_hosts | length > 0
     always:
@@ -101,6 +93,15 @@
           scheduling_policy: "{{ cluster_scheduling_policy }}"
         when: cluster_policy.changed | default(false)
   
+      - name: Start again pinned VMs
+        ovirt_vms:
+          auth: "{{ ovirt_auth }}"
+          name: "{{ item }}"
+          state: running
+        ignore_errors: yes
+        with_items:
+          - "{{ pinned_vms_down }}"
+
       - name: Start again stopped VMs
         ovirt_vms:
           auth: "{{ ovirt_auth }}"
@@ -108,15 +109,6 @@
         ignore_errors: yes
         with_items:
           - "{{ stopped_vms | default([]) }}"
-  
-      - name: Start again pin to host VMs
-        ovirt_vms:
-          auth: "{{ ovirt_auth }}"
-          name: "{{ item }}"
-        ignore_errors: yes
-        with_items:
-          - "{{ pinned_vms_names | default([]) }}"
-        when: "stop_non_migratable_vms"
   
       - name: Print info about host which was updated
         debug:
